@@ -816,80 +816,99 @@ class Selector(ParametersWidget):
         else:
             default_ = self.layer.global_stat
 
-        try:
-            def _compile_pct_value(v_min, v_max, v_pct, v_med=None):
-                try:
-                    if not v_med:
-                        v_med = (v_min + v_max) / 2
+        default_ = default_[self.pdal_dimension()]
 
-                    v_first = v_med - v_min
-                    v_second = v_max - v_med
+        if self.method == "Min&Max":
+            self._widgets[self.method].set_values(
+                {
+                    "Min": default_["minimum"],
+                    "Max": default_["maximum"]
+                }
+            )
+        elif self.method in ["Axe&Pas", "Symétrique", "Asymétrique"]:
+            try:
+                self._widgets[self.method].set_values(
+                    {
+                        "Axe": default_["mean"]
+                    }
+                )
+            except Exception as e:
+                print(default_)
 
-                    if v_pct < 0:
-                        r_value = v_first * abs(float(v_pct)) / 100.0
-                        return v_med - r_value
-                    else:
-                        r_value = v_second * abs(float(v_pct)) / 100.0
-                        return v_med + r_value
-                except Exception as e:
-                    return 0
-
-            # Récupérer le widget correspondant à la méthode choisie par l'utilisateur
-            for item in self._style_values:
-                for dim in self.all_dimensions():
-                    for meth in self.all_methods():
-                        if item["Dimension"] == dim and item["Méthode"] == meth:
-                            if dim == self.cmb_dimension:
-                                # Déterminer les valeurs s'ils sont en pourcentage ou non
-                                val1_pct = item.get("Valeur 1_suffix", None)
-                                val2_pct = item.get("Valeur 2_suffix", None)
-                                val3_pct = item.get("Valeur 3_suffix", None)
-
-                                # Récupérer les valeurs
-                                val1 = float(item["Valeur 1"])
-                                val2 = float(item["Valeur 2"])
-                                val3 = float(item["Valeur 3"])
-                                print(f"BefVal1: {val1}, BefVal2: {val2}, BefVal3: {val3}")
-
-                                # Récupérer les noms des dimensions
-                                pdal_dim = JSON_CFG[dim]["dimension"]
-                                lasp_dim = JSON_CFG[dim]["laspy_dimension"]
-
-                                if self._zonal_stat:
-                                    min_val = self._zonal_stat[lasp_dim]["min"]
-                                    max_val = self._zonal_stat[lasp_dim]["max"]
-                                    med_val = self._zonal_stat[lasp_dim]["mediane"]
-                                else:
-                                    print(list(self._stat.values())[0][pdal_dim])
-                                    min_val = list(self._stat.values())[0][pdal_dim]["minimum"]
-                                    max_val = list(self._stat.values())[0][pdal_dim]["maximum"]
-                                    med_val = None
-
-                                if val1_pct:
-                                    comp_ = _compile_pct_value(min_val, max_val, val1, med_val)
-                                    if meth in ["Asymétrique", "Symétrique", "Axe&Pas"]:
-                                        val1 = comp_
-                                    elif meth == "Cycle":
-                                        val1 = (max_val - min_val) * (val1 / 100.0)
-
-                                if val2_pct:
-                                    if meth in ["Asymétrique", "Symétrique", "Axe&Pas"]:
-                                        val2 = (max_val - min_val) * (val2 / 100.0)
-
-                                if val3_pct:
-                                    if meth == "Asymétrique":
-                                        val3 = (max_val - min_val) * (val3 / 100.0)
-
-                                if val1 and val2 and val3:
-                                    self._widgets[meth].set_default(val1, val2, val3)
-                                elif val1 and val2:
-                                    print("values :", val1, " ===> ", val2, " vs ", med_val)
-                                    self._widgets[meth].set_default(val1, val2)
-                                elif val1:
-                                    self._widgets[meth].set_default(val1)
-                            else:
-                                self._widgets[meth].set_default(0, 0, 0)
-
-        except Exception as e:
-            print("Erreur: ", e)
+        # try:
+        #     def _compile_pct_value(v_min, v_max, v_pct, v_med=None):
+        #         try:
+        #             if not v_med:
+        #                 v_med = (v_min + v_max) / 2
+        #
+        #             v_first = v_med - v_min
+        #             v_second = v_max - v_med
+        #
+        #             if v_pct < 0:
+        #                 r_value = v_first * abs(float(v_pct)) / 100.0
+        #                 return v_med - r_value
+        #             else:
+        #                 r_value = v_second * abs(float(v_pct)) / 100.0
+        #                 return v_med + r_value
+        #         except Exception as e:
+        #             return 0
+        #
+        #     # Récupérer le widget correspondant à la méthode choisie par l'utilisateur
+        #     for item in self._style_values:
+        #         for dim in self.all_dimensions():
+        #             for meth in self.all_methods():
+        #                 if item["Dimension"] == dim and item["Méthode"] == meth:
+        #                     if dim == self.cmb_dimension:
+        #                         # Déterminer les valeurs s'ils sont en pourcentage ou non
+        #                         val1_pct = item.get("Valeur 1_suffix", None)
+        #                         val2_pct = item.get("Valeur 2_suffix", None)
+        #                         val3_pct = item.get("Valeur 3_suffix", None)
+        #
+        #                         # Récupérer les valeurs
+        #                         val1 = float(item["Valeur 1"])
+        #                         val2 = float(item["Valeur 2"])
+        #                         val3 = float(item["Valeur 3"])
+        #                         print(f"BefVal1: {val1}, BefVal2: {val2}, BefVal3: {val3}")
+        #
+        #                         # Récupérer les noms des dimensions
+        #                         pdal_dim = JSON_CFG[dim]["dimension"]
+        #                         lasp_dim = JSON_CFG[dim]["laspy_dimension"]
+        #
+        #                         if self._zonal_stat:
+        #                             min_val = self._zonal_stat[lasp_dim]["min"]
+        #                             max_val = self._zonal_stat[lasp_dim]["max"]
+        #                             med_val = self._zonal_stat[lasp_dim]["mediane"]
+        #                         else:
+        #                             print(list(self._stat.values())[0][pdal_dim])
+        #                             min_val = list(self._stat.values())[0][pdal_dim]["minimum"]
+        #                             max_val = list(self._stat.values())[0][pdal_dim]["maximum"]
+        #                             med_val = None
+        #
+        #                         if val1_pct:
+        #                             comp_ = _compile_pct_value(min_val, max_val, val1, med_val)
+        #                             if meth in ["Asymétrique", "Symétrique", "Axe&Pas"]:
+        #                                 val1 = comp_
+        #                             elif meth == "Cycle":
+        #                                 val1 = (max_val - min_val) * (val1 / 100.0)
+        #
+        #                         if val2_pct:
+        #                             if meth in ["Asymétrique", "Symétrique", "Axe&Pas"]:
+        #                                 val2 = (max_val - min_val) * (val2 / 100.0)
+        #
+        #                         if val3_pct:
+        #                             if meth == "Asymétrique":
+        #                                 val3 = (max_val - min_val) * (val3 / 100.0)
+        #
+        #                         if val1 and val2 and val3:
+        #                             self._widgets[meth].set_default(val1, val2, val3)
+        #                         elif val1 and val2:
+        #                             print("values :", val1, " ===> ", val2, " vs ", med_val)
+        #                             self._widgets[meth].set_default(val1, val2)
+        #                         elif val1:
+        #                             self._widgets[meth].set_default(val1)
+        #                     else:
+        #                         self._widgets[meth].set_default(0, 0, 0)
+        #
+        # except Exception as e:
+        #     print("Erreur: ", e)
 
