@@ -2778,7 +2778,8 @@ class ZonalStatisticsWorker(QRunnable):
             export_as_shp: bool = True,
             extension: str = ".png",
             folder=None,
-            _filter: dict = None
+            _filter: dict = None,
+            box: QgsRectangle = None
     ):
         QRunnable.__init__(self)
         self.signals = WorkerSignals()
@@ -2794,7 +2795,7 @@ class ZonalStatisticsWorker(QRunnable):
         self.cloud.file = layer
 
         # Récupérer l'extent du canvas
-        box = iface.mapCanvas().extent()
+        box = box or iface.mapCanvas().extent()
         self.cloud.bound = QgsGeometry.fromRect(box).asWkt()
 
     def run(self):

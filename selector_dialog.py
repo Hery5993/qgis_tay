@@ -13,6 +13,7 @@ from PyQt5.QtGui import *
 from qgis._core import QgsMapLayer, QgsPointCloudLayer, QgsPointCloudStatistics, QgsRectangle
 from qgis._gui import QgisInterface
 from qgis.utils import iface
+from .utils import ZonalStatisticsWorker, CloudUtils
 
 JSON_CFG = {
     "Intensité": {
@@ -362,11 +363,13 @@ class ParametersWidget(QWidget):
 
         self._dimensions = QComboBox(self)
         self._dimensions.setFixedHeight(27)
+        self._dimensions.setMinimumWidth(100)
         self.layout().addWidget(self._dimensions)
 
         # Liste des méthodes
         self._methods = QComboBox(self)
         self._methods.setFixedHeight(27)
+        self._methods.setMinimumWidth(100)
         self.layout().addWidget(self._methods)
 
         # Créer les widgets
@@ -566,6 +569,56 @@ class CurrentLayer(QObject):
 
         return CurrentLayer.z_stat[layer_path]
 
+    @zonal_stat.setter
+    def zonal_stat(self, box: QgsRectangle):
+        stat = self.zonal_statistics()
+
+    def zonal_statistics(self, save: bool = False, merge: bool = True):
+        """
+        Méthode permettant de calculer les valeurs par défaut des widgets
+        Params:
+            save: bool: Sauvegarder les histogrammes
+        """
+        if not self.layer:
+            CloudUtils.gis_error("Séléctionner une couche nuage de points au format VPC.")
+            return None
+
+            # Résultat de la statistique
+        loop = QEventLoop()
+        try:
+            # Créer le parser
+            self.statStarted.emit()
+            self.zonal_stat = ZonalStatisticsWorker(
+                self.layer.dataProvider().dataSourceUri(),
+                save,
+                merge,
+                folder=CloudUtils.project_path(),
+                _filter=self._filters
+            )
+
+            # Procéder au terme du calcul
+            def on_finished(*args, **kwargs):
+                self.zonal_stat.signals.finished.disconnect()
+                self.zonal_stat.signals.error.disconnect()
+                # self.statFinished.emit()
+                loop.quit()
+                CloudUtils.gis_info("Statistiques calculés avec succès.")
+
+            # Utiliser la statistique
+            self.zonal_stat.signals.finished.connect(on_finished)
+            self.zonal_stat.signals.error.connect(CloudUtils.gis_error)
+            self.pool.start(self.zonal_stat)
+
+            # Lancer la commande et retourner la valeur
+            loop.exec()
+            result = self.zonal_stat.result.copy()
+            self.zonal_stat = None
+            return result
+        except Exception as e:
+            # self.statFinished.emit()
+            loop.quit()
+            return None
+
     def _vpc_stats(self, files: List[Dict]):
         """
         Compute aggregated stats (min/max) for multiple COPC files.
@@ -695,7 +748,6 @@ class CurrentLayer(QObject):
                         "object": None,
                         "directory": os.path.dirname(source)
                     })
-
                 return copc_files
             else:
                 return []
@@ -749,8 +801,8 @@ class Selector(ParametersWidget):
         self.layer.layerChanged.connect(lambda dimes: self.set_dimensions(dimes))
 
         # Connecter les signaux
-        self._dimensions.currentTextChanged.connect(self._set_default)
-        self._methods.currentTextChanged.connect(self._set_default)
+        self._dimensions.currentTextChanged.connect(self.set_default)
+        self._methods.currentTextChanged.connect(self.set_default)
 
     def set_dimensions(self, dimes):
         self.dimensions = dimes
@@ -758,3 +810,86 @@ class Selector(ParametersWidget):
     def set_default(self):
         if not self.layer.layer:
             return
+
+        if self.layer.zonal_stat:
+            default_ = self.layer.zonal_stat
+        else:
+            default_ = self.layer.global_stat
+
+        try:
+            def _compile_pct_value(v_min, v_max, v_pct, v_med=None):
+                try:
+                    if not v_med:
+                        v_med = (v_min + v_max) / 2
+
+                    v_first = v_med - v_min
+                    v_second = v_max - v_med
+
+                    if v_pct < 0:
+                        r_value = v_first * abs(float(v_pct)) / 100.0
+                        return v_med - r_value
+                    else:
+                        r_value = v_second * abs(float(v_pct)) / 100.0
+                        return v_med + r_value
+                except Exception as e:
+                    return 0
+
+            # Récupérer le widget correspondant à la méthode choisie par l'utilisateur
+            for item in self._style_values:
+                for dim in self.all_dimensions():
+                    for meth in self.all_methods():
+                        if item["Dimension"] == dim and item["Méthode"] == meth:
+                            if dim == self.cmb_dimension:
+                                # Déterminer les valeurs s'ils sont en pourcentage ou non
+                                val1_pct = item.get("Valeur 1_suffix", None)
+                                val2_pct = item.get("Valeur 2_suffix", None)
+                                val3_pct = item.get("Valeur 3_suffix", None)
+
+                                # Récupérer les valeurs
+                                val1 = float(item["Valeur 1"])
+                                val2 = float(item["Valeur 2"])
+                                val3 = float(item["Valeur 3"])
+                                print(f"BefVal1: {val1}, BefVal2: {val2}, BefVal3: {val3}")
+
+                                # Récupérer les noms des dimensions
+                                pdal_dim = JSON_CFG[dim]["dimension"]
+                                lasp_dim = JSON_CFG[dim]["laspy_dimension"]
+
+                                if self._zonal_stat:
+                                    min_val = self._zonal_stat[lasp_dim]["min"]
+                                    max_val = self._zonal_stat[lasp_dim]["max"]
+                                    med_val = self._zonal_stat[lasp_dim]["mediane"]
+                                else:
+                                    print(list(self._stat.values())[0][pdal_dim])
+                                    min_val = list(self._stat.values())[0][pdal_dim]["minimum"]
+                                    max_val = list(self._stat.values())[0][pdal_dim]["maximum"]
+                                    med_val = None
+
+                                if val1_pct:
+                                    comp_ = _compile_pct_value(min_val, max_val, val1, med_val)
+                                    if meth in ["Asymétrique", "Symétrique", "Axe&Pas"]:
+                                        val1 = comp_
+                                    elif meth == "Cycle":
+                                        val1 = (max_val - min_val) * (val1 / 100.0)
+
+                                if val2_pct:
+                                    if meth in ["Asymétrique", "Symétrique", "Axe&Pas"]:
+                                        val2 = (max_val - min_val) * (val2 / 100.0)
+
+                                if val3_pct:
+                                    if meth == "Asymétrique":
+                                        val3 = (max_val - min_val) * (val3 / 100.0)
+
+                                if val1 and val2 and val3:
+                                    self._widgets[meth].set_default(val1, val2, val3)
+                                elif val1 and val2:
+                                    print("values :", val1, " ===> ", val2, " vs ", med_val)
+                                    self._widgets[meth].set_default(val1, val2)
+                                elif val1:
+                                    self._widgets[meth].set_default(val1)
+                            else:
+                                self._widgets[meth].set_default(0, 0, 0)
+
+        except Exception as e:
+            print("Erreur: ", e)
+
